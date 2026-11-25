@@ -7,6 +7,7 @@ from bleak.exc import BleakError
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
     _get_properties,
+    clear_cache,
     establish_connection,
     path_from_ble_device,
 )
@@ -155,7 +156,21 @@ class DeviceReader:
                             "BlueZ returned no GATT services; reconnecting for fresh discovery"
                         )
                         await self.client.disconnect()
+                        try:
+                            cache_cleared = await clear_cache(self.mac)
+                            self.logger.warning(
+                                "BlueZ service cache cleared: %s", cache_cleared
+                            )
+                        except Exception:
+                            self.logger.warning(
+                                "Unable to clear BlueZ service cache", exc_info=True
+                            )
                         await asyncio.sleep(1)
+                        self.device = await BleakScanner.find_device_by_address(
+                            self.mac, timeout=10
+                        )
+                        if self.device is None:
+                            raise BleakError("Device disappeared after BlueZ cache clear")
                         self.client = await establish_connection(
                             BleakClientWithServiceCache,
                             self.device,
