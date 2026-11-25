@@ -8,7 +8,7 @@ from bleak_retry_connector import BleakClientWithServiceCache, establish_connect
 
 from .encryption import BluettiEncryption, Message, MessageType, AES_BLOCK_SIZE
 from ..base_devices import BluettiDevice
-from ..const import NOTIFY_UUID, WRITE_UUID
+from ..const import ALTERNATE_NOTIFY_UUID, NOTIFY_UUID, WRITE_UUID
 from ..registers import ReadableRegisters, DeviceRegister
 from ..utils.privacy import mac_loggable
 
@@ -98,9 +98,23 @@ class DeviceReader:
                     self.logger.debug("Connected to device")
 
                     if not self.has_notifier:
-                        await self.client.start_notify(
-                            NOTIFY_UUID, self._notification_handler
-                        )
+                        try:
+                            await self.client.start_notify(
+                                NOTIFY_UUID, self._notification_handler
+                            )
+                        except BleakError as err:
+                            # Some newer BLUETTI firmware exposes the data
+                            # notification characteristic as FF03 instead of
+                            # FF01.  Keep FF01 as the normal path and fall
+                            # back only when the characteristic is absent.
+                            if "ff01" not in str(err).lower():
+                                raise
+                            self.logger.warning(
+                                "FF01 notification characteristic unavailable; trying FF03"
+                            )
+                            await self.client.start_notify(
+                                ALTERNATE_NOTIFY_UUID, self._notification_handler
+                            )
                         self.has_notifier = True
 
                     self.logger.debug("Notification handler setup complete")
