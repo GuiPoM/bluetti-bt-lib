@@ -101,6 +101,14 @@ class DeviceReader:
                     services = getattr(self.client, "services", None)
                     service_map = getattr(services, "services", {})
                     if not service_map and not self.ble_client:
+                        await asyncio.sleep(2)
+                        backend = getattr(self.client, "_backend", None)
+                        refresh_services = getattr(backend, "_get_services", None)
+                        if refresh_services is not None:
+                            await refresh_services(dangerous_use_bleak_cache=False)
+                            services = getattr(self.client, "services", None)
+                            service_map = getattr(services, "services", {})
+                    if not service_map and not self.ble_client:
                         self.logger.warning(
                             "BlueZ returned no GATT services; reconnecting for fresh discovery"
                         )

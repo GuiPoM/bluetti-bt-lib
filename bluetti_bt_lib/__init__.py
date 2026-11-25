@@ -1,6 +1,6 @@
 """Bluetti BT Lib exports."""
 
-__version__ = "0.1.9.dev4"
+__version__ = "0.1.9.dev5"
 
 from .base_devices import BluettiDevice
 from .bluetooth import (
