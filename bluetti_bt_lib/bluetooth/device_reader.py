@@ -4,7 +4,12 @@ import async_timeout
 from typing import Any, Callable, List, cast
 from bleak import BleakClient, BleakScanner
 from bleak.exc import BleakError
-from bleak_retry_connector import BleakClientWithServiceCache, establish_connection
+from bleak_retry_connector import (
+    BleakClientWithServiceCache,
+    _get_properties,
+    establish_connection,
+    path_from_ble_device,
+)
 
 from .encryption import BluettiEncryption, Message, MessageType, AES_BLOCK_SIZE
 from ..base_devices import BluettiDevice
@@ -98,6 +103,36 @@ class DeviceReader:
 
                     self.logger.debug("Connected to device")
 
+                    backend = getattr(self.client, "_backend", None)
+                    device_path = path_from_ble_device(self.device)
+                    self.logger.warning(
+                        "BLE backend=%s device_path=%s client_path=%s",
+                        type(backend).__name__,
+                        device_path,
+                        getattr(backend, "_device_path", None),
+                    )
+                    if device_path:
+                        try:
+                            properties = await _get_properties()
+                            service_paths = [
+                                path
+                                for path, interfaces in properties.items()
+                                if path.startswith(device_path + "/")
+                                and any(
+                                    "GattService1" in interface
+                                    for interface in interfaces
+                                )
+                            ]
+                            self.logger.warning(
+                                "BlueZ D-Bus GattService1 objects: %d (%s)",
+                                len(service_paths),
+                                ", ".join(service_paths),
+                            )
+                        except Exception:
+                            self.logger.warning(
+                                "Unable to inspect BlueZ GATT objects", exc_info=True
+                            )
+
                     services = getattr(self.client, "services", None)
                     service_map = getattr(services, "services", {})
                     if not service_map and not self.ble_client:
@@ -105,7 +140,14 @@ class DeviceReader:
                         backend = getattr(self.client, "_backend", None)
                         refresh_services = getattr(backend, "_get_services", None)
                         if refresh_services is not None:
-                            await refresh_services(dangerous_use_bleak_cache=False)
+                            try:
+                                await refresh_services(
+                                    dangerous_use_bleak_cache=False
+                                )
+                            except Exception:
+                                self.logger.warning(
+                                    "Bleak service refresh failed", exc_info=True
+                                )
                             services = getattr(self.client, "services", None)
                             service_map = getattr(services, "services", {})
                     if not service_map and not self.ble_client:
