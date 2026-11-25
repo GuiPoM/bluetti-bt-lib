@@ -93,12 +93,28 @@ class DeviceReader:
                             self.device,
                             self.device.name or "Unknown Device",
                             max_attempts=10,
+                            use_services_cache=False,
                         )
 
                     self.logger.debug("Connected to device")
 
                     services = getattr(self.client, "services", None)
                     service_map = getattr(services, "services", {})
+                    if not service_map and not self.ble_client:
+                        self.logger.warning(
+                            "BlueZ returned no GATT services; reconnecting for fresh discovery"
+                        )
+                        await self.client.disconnect()
+                        await asyncio.sleep(1)
+                        self.client = await establish_connection(
+                            BleakClientWithServiceCache,
+                            self.device,
+                            self.device.name or "Unknown Device",
+                            max_attempts=3,
+                            use_services_cache=False,
+                        )
+                        services = getattr(self.client, "services", None)
+                        service_map = getattr(services, "services", {})
                     self.logger.warning(
                         "GATT discovery: %d services (%s)",
                         len(service_map),
