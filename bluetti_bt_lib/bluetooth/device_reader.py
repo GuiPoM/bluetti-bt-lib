@@ -134,7 +134,13 @@ class DeviceReader:
                                 "Unable to inspect BlueZ GATT objects", exc_info=True
                             )
 
-                    services = getattr(self.client, "services", None)
+                    try:
+                        services = self.client.services
+                    except BleakError as err:
+                        self.logger.warning(
+                            "GATT services not ready after connect: %s", err
+                        )
+                        services = None
                     service_map = getattr(services, "services", {})
                     if not service_map and not self.ble_client:
                         await asyncio.sleep(2)
@@ -149,7 +155,10 @@ class DeviceReader:
                                 self.logger.warning(
                                     "Bleak service refresh failed", exc_info=True
                                 )
-                            services = getattr(self.client, "services", None)
+                            try:
+                                services = self.client.services
+                            except BleakError:
+                                services = None
                             service_map = getattr(services, "services", {})
                     if not service_map and not self.ble_client:
                         self.logger.warning(
