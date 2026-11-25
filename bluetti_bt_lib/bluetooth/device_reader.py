@@ -151,9 +151,11 @@ class DeviceReader:
                                 await refresh_services(
                                     dangerous_use_bleak_cache=False
                                 )
-                            except Exception:
+                            except Exception as err:
                                 self.logger.warning(
-                                    "Bleak service refresh failed", exc_info=True
+                                    "Bleak service refresh failed: %s",
+                                    repr(err),
+                                    exc_info=True,
                                 )
                             try:
                                 services = self.client.services
