@@ -8,6 +8,7 @@ from bleak_retry_connector import (
     BleakClientWithServiceCache,
     _get_properties,
     clear_cache,
+    close_stale_connections,
     establish_connection,
     path_from_ble_device,
 )
@@ -94,6 +95,7 @@ class DeviceReader:
                     if self.ble_client:
                         self.client = self.ble_client
                     else:
+                        await close_stale_connections(self.device)
                         self.client = await establish_connection(
                             BleakClientWithServiceCache,
                             self.device,
