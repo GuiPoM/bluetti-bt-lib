@@ -97,6 +97,14 @@ class DeviceReader:
 
                     self.logger.debug("Connected to device")
 
+                    services = getattr(self.client, "services", None)
+                    service_map = getattr(services, "services", {})
+                    self.logger.warning(
+                        "GATT discovery: %d services (%s)",
+                        len(service_map),
+                        ", ".join(str(uuid) for uuid in service_map),
+                    )
+
                     if not self.has_notifier:
                         try:
                             await self.client.start_notify(
