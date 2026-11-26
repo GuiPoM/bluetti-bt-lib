@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from typing import Any, Callable, List
+from bleak.backends.device import BLEDevice
 
 from ..base_devices import BluettiDevice, BaseDeviceV1, BaseDeviceV2
 from ..bluetooth import DeviceReader, DeviceReaderConfig
@@ -24,6 +25,7 @@ class DeviceRecognizerResult:
 async def recognize_device(
     mac: str,
     future_builder_method: Callable[[], asyncio.Future[Any]],
+    ble_device: BLEDevice | None = None,
 ) -> DeviceRecognizerResult | None:
     # Since we don't know the type we use the base device
     bluetti_devices: List[BluettiDevice] = [
@@ -56,6 +58,7 @@ async def recognize_device(
             # We only need 6 registers to get the device type
             data = await device_reader.read(
                 bluetti_device.get_device_type_registers(),
+                ble_device=ble_device,
             )
 
             if data is None:
@@ -84,6 +87,7 @@ async def recognize_device(
 
             data = await device_reader.read(
                 bluetti_device.get_device_sn_registers(),
+                ble_device=ble_device,
             )
 
             if data is None:

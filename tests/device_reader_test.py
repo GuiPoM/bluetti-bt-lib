@@ -1,5 +1,10 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+from bleak.backends.device import BLEDevice
+from bleak_retry_connector import BleakClientWithServiceCache
 
 from bluetti_bt_lib.base_devices import BaseDeviceV1
 from bluetti_bt_lib import DeviceReader
@@ -11,6 +16,7 @@ class TestDeviceReader(unittest.IsolatedAsyncioTestCase):
     def __init__(self, methodName="runTest"):
         super().__init__(methodName)
         self.ble_mock = ClientMockNoEncryption()
+        self.ble_mock.services = SimpleNamespace(services={})
 
         # Device type
         self.ble_mock.add_r_str(10, "AC300", 6)
@@ -61,3 +67,34 @@ class TestDeviceReader(unittest.IsolatedAsyncioTestCase):
         data = await reader.read()
 
         self.assertIsNone(data.get(FieldName.BATTERY_SOC.value))
+
+    async def test_read_uses_home_assistant_ble_device(self):
+        """Use the BLE device selected by Home Assistant, not a local scan."""
+        device = BaseDeviceV1()
+        ble_device = BLEDevice("00:11:00:11:00:11", "AC300", {})
+        self.ble_mock.services = SimpleNamespace(services={"test-service": object()})
+        reader = DeviceReader(
+            ble_device.address,
+            device,
+            asyncio.Future,
+        )
+
+        with (
+            patch(
+                "bluetti_bt_lib.bluetooth.device_reader.establish_connection",
+                new=AsyncMock(return_value=self.ble_mock),
+            ) as establish_connection,
+            patch(
+                "bluetti_bt_lib.bluetooth.device_reader.BleakScanner.find_device_by_address",
+                new=AsyncMock(side_effect=AssertionError("local scan must not run")),
+            ),
+        ):
+            data = await reader.read(ble_device=ble_device)
+
+        self.assertEqual(data.get(FieldName.BATTERY_SOC.value), 78)
+        establish_connection.assert_awaited_once_with(
+            BleakClientWithServiceCache,
+            ble_device,
+            "AC300",
+            max_attempts=3,
+        )

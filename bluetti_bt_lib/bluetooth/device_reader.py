@@ -3,6 +3,7 @@ import logging
 import async_timeout
 from typing import Any, Callable, List, cast
 from bleak import BleakClient, BleakScanner
+from bleak.backends.device import BLEDevice
 from bleak.exc import BleakError
 from bleak_retry_connector import (
     BleakClientWithServiceCache,
@@ -61,7 +62,10 @@ class DeviceReader:
         self._handshake_armed = False
 
     async def read(
-        self, only_registers: List[ReadableRegisters] | None = None, raw: bool = False
+        self,
+        only_registers: List[ReadableRegisters] | None = None,
+        raw: bool = False,
+        ble_device: BLEDevice | None = None,
     ) -> dict | None:
 
         registers = self.bluetti_device.get_polling_registers()
@@ -74,6 +78,7 @@ class DeviceReader:
         parsed_data: dict = {}
 
         self.logger.debug("Reading device registers")
+        ha_managed_device = ble_device is not None
 
         async with self.polling_lock:
             try:
@@ -82,6 +87,11 @@ class DeviceReader:
 
                     if self.ble_client:
                         self.device = None
+                    elif ble_device is not None:
+                        # Home Assistant supplies the BLEDevice selected by its
+                        # Bluetooth manager. It may represent a remote ESPHome
+                        # proxy, so do not replace it with a local Bleak scan.
+                        self.device = ble_device
                     else:
                         self.device = await BleakScanner.find_device_by_address(
                             self.mac, timeout=5
@@ -95,6 +105,17 @@ class DeviceReader:
 
                     if self.ble_client:
                         self.client = self.ble_client
+                    elif ha_managed_device:
+                        self.has_notifier = False
+                        self._handshake_armed = False
+                        self.encryption = BluettiEncryption()
+                        self.encrypted_buffer.clear()
+                        self.client = await establish_connection(
+                            BleakClientWithServiceCache,
+                            self.device,
+                            self.device.name or self.mac,
+                            max_attempts=3,
+                        )
                     else:
                         await close_stale_connections(self.device)
                         self.has_notifier = False
@@ -110,14 +131,17 @@ class DeviceReader:
                     self.logger.debug("Connected to device")
 
                     backend = getattr(self.client, "_backend", None)
-                    device_path = path_from_ble_device(self.device)
-                    self.logger.warning(
-                        "BLE backend=%s device_path=%s client_path=%s",
+                    device_path = (
+                        path_from_ble_device(self.device) if self.device else None
+                    )
+                    self.logger.debug(
+                        "BLE backend=%s device_path=%s client_path=%s HA-managed=%s",
                         type(backend).__name__,
                         device_path,
                         getattr(backend, "_device_path", None),
+                        ha_managed_device,
                     )
-                    if device_path:
+                    if device_path and not ha_managed_device:
                         try:
                             properties = await _get_properties()
                             service_paths = [
@@ -141,7 +165,7 @@ class DeviceReader:
 
                     try:
                         services = self.client.services
-                    except BleakError as err:
+                    except (BleakError, AttributeError) as err:
                         self.logger.warning(
                             "GATT services not ready after connect: %s", err
                         )
@@ -167,7 +191,7 @@ class DeviceReader:
                             except BleakError:
                                 services = None
                             service_map = getattr(services, "services", {})
-                    if not service_map and not self.ble_client:
+                    if not service_map and not self.ble_client and not ha_managed_device:
                         self.logger.warning(
                             "BlueZ returned no GATT services; reconnecting for fresh discovery"
                         )
@@ -194,6 +218,10 @@ class DeviceReader:
                         )
                         services = getattr(self.client, "services", None)
                         service_map = getattr(services, "services", {})
+                    elif not service_map and ha_managed_device:
+                        raise BleakError(
+                            "Home Assistant Bluetooth connection returned no GATT services"
+                        )
                     self.logger.warning(
                         "GATT discovery: %d services (%s)",
                         len(service_map),
