@@ -58,6 +58,7 @@ class DeviceReader:
         self.notify_future: asyncio.Future[Any] | None = None
         self.encryption = BluettiEncryption()
         self.encrypted_buffer = bytearray()
+        self._handshake_armed = False
 
     async def read(
         self, only_registers: List[ReadableRegisters] | None = None, raw: bool = False
@@ -96,6 +97,10 @@ class DeviceReader:
                         self.client = self.ble_client
                     else:
                         await close_stale_connections(self.device)
+                        self.has_notifier = False
+                        self._handshake_armed = False
+                        self.encryption = BluettiEncryption()
+                        self.encrypted_buffer.clear()
                         self.client = BleakClientWithServiceCache(self.device)
                         await self.client.connect(
                             timeout=20,
@@ -196,6 +201,10 @@ class DeviceReader:
                     )
 
                     if not self.has_notifier:
+                        if self.config.use_encryption:
+                            self.notify_response = bytearray()
+                            self.notify_future = self.create_future()
+                            self._handshake_armed = True
                         try:
                             await self.client.start_notify(
                                 NOTIFY_UUID, self._notification_handler
@@ -318,6 +327,10 @@ class DeviceReader:
         self.encrypted_buffer.clear()
 
         command_bytes = bytes(registers)
+
+        if not command_bytes:
+            self.logger.debug("Skipping empty command %s", registers)
+            return bytes()
 
         # Encrypt command
         if self.config.use_encryption is True:
