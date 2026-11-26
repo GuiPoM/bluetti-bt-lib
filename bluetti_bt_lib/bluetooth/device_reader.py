@@ -96,12 +96,10 @@ class DeviceReader:
                         self.client = self.ble_client
                     else:
                         await close_stale_connections(self.device)
-                        self.client = await establish_connection(
-                            BleakClientWithServiceCache,
-                            self.device,
-                            self.device.name or "Unknown Device",
-                            max_attempts=10,
-                            use_services_cache=False,
+                        self.client = BleakClientWithServiceCache(self.device)
+                        await self.client.connect(
+                            timeout=20,
+                            dangerous_use_bleak_cache=False,
                         )
 
                     self.logger.debug("Connected to device")
@@ -184,12 +182,10 @@ class DeviceReader:
                         )
                         if self.device is None:
                             raise BleakError("Device disappeared after BlueZ cache clear")
-                        self.client = await establish_connection(
-                            BleakClientWithServiceCache,
-                            self.device,
-                            self.device.name or "Unknown Device",
-                            max_attempts=3,
-                            use_services_cache=False,
+                        self.client = BleakClientWithServiceCache(self.device)
+                        await self.client.connect(
+                            timeout=20,
+                            dangerous_use_bleak_cache=False,
                         )
                         services = getattr(self.client, "services", None)
                         service_map = getattr(services, "services", {})
